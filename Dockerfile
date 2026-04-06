@@ -12,5 +12,5 @@ COPY . /app
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir .
 
-EXPOSE 8000
+EXPOSE 7860
 CMD ["python", "-m", "openenv_cicd_triage.server.app"]
