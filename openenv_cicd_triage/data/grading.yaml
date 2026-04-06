@@ -1,0 +1,34 @@
+score_weights:
+  evidence: 2.5
+  root_cause: 4.0
+  fix: 2.5
+  efficiency: 1.0
+
+reward_weights:
+  reveal_required_evidence: 0.06
+  reveal_supporting_evidence: 0.03
+  correct_root_cause_category: 0.20
+  correct_root_cause_detail: 0.08
+  correct_fix_type: 0.18
+  correct_fix_detail: 0.08
+  successful_resolution_bonus: 0.30
+
+penalties:
+  repeated_action: 0.03
+  irrelevant_search: 0.02
+  premature_resolution: 0.08
+  incorrect_root_cause: 0.05
+  incorrect_fix: 0.05
+  malformed_action: 0.04
+  step_budget_overrun_factor: 0.08
+
+limits:
+  max_search_results: 6
+  max_log_window_lines: 12
+  min_resolution_evidence_fraction: 0.6
+
+text_matching:
+  min_keyword_fraction: 0.5
+  symptom_alias_partial_credit: 0.35
+  normalize_case: true
+  strip_punctuation: true

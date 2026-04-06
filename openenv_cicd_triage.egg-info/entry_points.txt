@@ -1,0 +1,2 @@
+[console_scripts]
+server = openenv_cicd_triage.server.app:main

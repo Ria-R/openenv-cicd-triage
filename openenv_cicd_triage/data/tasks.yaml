@@ -1,0 +1,273 @@
+tasks:
+  - id: dependency_mismatch_easy
+    title: Python dependency mismatch after SDK helper refactor
+    difficulty: easy
+    max_steps: 8
+    ideal_steps: 5
+    pipeline_id: pl-easy-1042
+    summary:
+      repo: payments-ledger-api
+      branch: feature/sdk-helper-refactor
+      failed_stage: unit-tests
+      trigger: pull_request
+      commit_sha: a31c9e4
+      executor: ubuntu-latest / python-3.11
+      changed_files:
+        - app/auth/client.py
+        - tests/test_auth_client.py
+        - requirements.txt
+      stages:
+        - checkout: success
+        - install: success
+        - unit-tests: failed
+        - package: skipped
+    data:
+      stage_logs:
+        checkout:
+          - "Checked out commit a31c9e4 on feature/sdk-helper-refactor"
+          - "Submodules: none"
+        install:
+          - "pip install -r requirements.txt"
+          - "Successfully installed authsdk-1.8.0 requests-2.32.0"
+        unit-tests:
+          - "=================== test session starts ==================="
+          - "platform linux -- Python 3.11.8, pytest-8.1.1"
+          - "collected 48 items"
+          - "tests/test_auth_client.py::test_refresh_token_uses_new_helper FAILED"
+          - "E   ImportError: cannot import name 'build_retry_policy' from 'authsdk.helpers'"
+          - "E   authsdk.helpers in authsdk==1.8.0 exposes 'retry_policy' but not 'build_retry_policy'"
+          - "app/auth/client.py:14: from authsdk.helpers import build_retry_policy"
+          - "requirements.txt pins authsdk==1.8.0"
+          - "================= 1 failed, 47 passed in 14.21s ================="
+      dependency_files:
+        requirements.txt:
+          - "fastapi==0.115.0"
+          - "authsdk==1.8.0"
+          - "requests==2.32.0"
+      test_report:
+        failures: 1
+        passed: 47
+        flaky_tests: []
+        first_failed_test: tests/test_auth_client.py::test_refresh_token_uses_new_helper
+      env_snapshot:
+        python_version: "3.11.8"
+        os: ubuntu-latest
+        relevant_env:
+          PIP_INDEX_URL: https://pypi.org/simple
+      recent_run_diff:
+        previous_green_commit: a31c8d1
+        notable_changes:
+          - "requirements.txt unchanged"
+          - "New helper function call introduced in app/auth/client.py"
+    truth:
+      root_cause:
+        category: dependency_mismatch
+        required_keywords:
+          - importerror
+          - build_retry_policy
+          - authsdk
+          - 1.8.0
+        acceptable_aliases:
+          version_mismatch: 0.5
+          incompatible_api: 0.7
+      fix:
+        type: pin_dependency
+        required_keywords:
+          - pin
+          - compatible
+          - authsdk
+          - update requirements
+        acceptable_aliases:
+          update_code_to_existing_api: 0.65
+      evidence:
+        required_actions:
+          - view_stage_log:unit-tests
+          - view_dependency_file:requirements.txt
+        supporting_actions:
+          - view_test_report
+      symptom_aliases:
+        import_error: 0.35
+        unit_test_failure: 0.20
+
+  - id: missing_secret_medium
+    title: Deployment token missing after pipeline template cleanup
+    difficulty: medium
+    max_steps: 10
+    ideal_steps: 6
+    pipeline_id: pl-med-2088
+    summary:
+      repo: customer-notify-service
+      branch: main
+      failed_stage: deploy
+      trigger: merge_to_main
+      commit_sha: c82fd77
+      executor: ubuntu-latest / python-3.11
+      changed_files:
+        - .github/workflows/deploy.yml
+        - deploy/chart/values-prod.yaml
+      stages:
+        - checkout: success
+        - build: success
+        - unit-tests: success
+        - package: success
+        - deploy: failed
+    data:
+      stage_logs:
+        build:
+          - "docker build -t registry.local/customer-notify:c82fd77 ."
+          - "Build completed successfully"
+        deploy:
+          - "helm upgrade customer-notify deploy/chart --namespace prod"
+          - "Rendering deployment manifests"
+          - "ERROR: required value DEPLOY_API_TOKEN is not set"
+          - "Deployment script aborted before applying manifests"
+          - "curl: (22) The requested URL returned error: 401"
+          - "Hint: verify secret mappings in the CI deploy job"
+      env_snapshot:
+        python_version: "3.11.8"
+        os: ubuntu-latest
+        relevant_env:
+          ENVIRONMENT: prod
+          DEPLOY_API_TOKEN: null
+          CHART_PATH: deploy/chart
+      recent_run_diff:
+        previous_green_commit: c82f933
+        notable_changes:
+          - "deploy.yml removed inherit: secrets from reusable workflow"
+          - "No application code changes"
+      changed_files_detail:
+        .github/workflows/deploy.yml:
+          - "jobs.deploy.uses: ./.github/workflows/reusable-deploy.yml"
+          - "jobs.deploy.secrets removed during cleanup"
+        deploy/chart/values-prod.yaml:
+          - "image.tag updated to c82fd77"
+      test_report:
+        failures: 0
+        passed: 126
+        flaky_tests: []
+    truth:
+      root_cause:
+        category: missing_env_var
+        required_keywords:
+          - deploy_api_token
+          - missing
+          - secret
+          - deploy
+        acceptable_aliases:
+          missing_secret: 0.8
+          unauthorized_deploy: 0.4
+      fix:
+        type: restore_env_var
+        required_keywords:
+          - restore
+          - secret mapping
+          - deploy_api_token
+          - workflow
+        acceptable_aliases:
+          add secret to ci job: 0.8
+      evidence:
+        required_actions:
+          - view_stage_log:deploy
+          - view_env_snapshot
+        supporting_actions:
+          - view_recent_run_diff
+          - view_changed_files
+      symptom_aliases:
+        deploy_failed: 0.25
+        unauthorized: 0.20
+
+  - id: migration_cascade_hard
+    title: Integration tests timing out after migration image mismatch
+    difficulty: hard
+    max_steps: 12
+    ideal_steps: 8
+    pipeline_id: pl-hard-3171
+    summary:
+      repo: accounts-platform
+      branch: release/2026-04-rc1
+      failed_stage: integration-tests
+      trigger: release_candidate
+      commit_sha: f7712aa
+      executor: ubuntu-latest / python-3.12
+      changed_files:
+        - deploy/k8s/migration-job.yaml
+        - deploy/k8s/app-deployment.yaml
+        - services/accounts/tests/integration/test_customer_sync.py
+      stages:
+        - checkout: success
+        - build: success
+        - migration: failed
+        - integration-tests: failed
+        - deploy: skipped
+    data:
+      stage_logs:
+        build:
+          - "docker build completed for accounts-platform:f7712aa"
+        migration:
+          - "kubectl apply -f deploy/k8s/migration-job.yaml"
+          - "migration job/accounts-db-migrate created"
+          - "Waiting for migration job to complete..."
+          - "Error from migration container: psycopg.errors.UndefinedTable: relation 'ledger_entries_v2' does not exist"
+          - "migration image tag accounts-migrator:1.4.2 does not match application expected schema bundle 1.5.x"
+          - "job/accounts-db-migrate failed"
+        integration-tests:
+          - "Starting ephemeral namespace env-5421"
+          - "Health check retry 1/12: accounts-db connection refused"
+          - "Health check retry 8/12: service not healthy yet"
+          - "tests/integration/test_customer_sync.py::test_customer_sync_timeout FAILED"
+          - "E   TimeoutError: accounts service never became healthy"
+          - "Root symptom: upstream database migration job failed earlier in pipeline"
+      env_snapshot:
+        python_version: "3.12.2"
+        os: ubuntu-latest
+        relevant_env:
+          RELEASE_CHANNEL: rc
+          DB_MIGRATION_IMAGE: accounts-migrator:1.4.2
+          APP_SCHEMA_TARGET: 1.5.0
+      recent_run_diff:
+        previous_green_commit: f770fe1
+        notable_changes:
+          - "migration-job.yaml now references accounts-migrator:1.4.2"
+          - "application deployment expects schema bundle 1.5.0"
+          - "integration test timeout threshold unchanged"
+      changed_files_detail:
+        deploy/k8s/migration-job.yaml:
+          - "image: registry.local/accounts-migrator:1.4.2"
+        deploy/k8s/app-deployment.yaml:
+          - "env APP_SCHEMA_TARGET=1.5.0"
+      test_report:
+        failures: 1
+        passed: 214
+        flaky_tests:
+          - tests/integration/test_customer_sync.py::test_customer_sync_timeout
+    truth:
+      root_cause:
+        category: migration_failure
+        required_keywords:
+          - migration
+          - image tag
+          - schema
+          - mismatch
+        acceptable_aliases:
+          db_schema_mismatch: 0.75
+          service_unhealthy_due_to_migration: 0.7
+      fix:
+        type: update_migration_image
+        required_keywords:
+          - update
+          - migrator
+          - 1.5
+          - rerun pipeline
+        acceptable_aliases:
+          align migration config: 0.8
+      evidence:
+        required_actions:
+          - view_stage_log:integration-tests
+          - view_stage_log:migration
+          - view_recent_run_diff
+        supporting_actions:
+          - view_env_snapshot
+          - view_changed_files
+      symptom_aliases:
+        database_timeout: 0.35
+        service_unhealthy: 0.30

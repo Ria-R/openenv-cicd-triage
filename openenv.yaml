@@ -1,0 +1,21 @@
+name: openenv-cicd-triage
+version: "0.1.0"
+description: Deterministic CI/CD failure debugging environment for agent evaluation.
+entrypoint: openenv_cicd_triage.server.app:app
+runtime:
+  framework: fastapi
+  port: 8000
+artifacts:
+  dockerfile: Dockerfile
+metadata:
+  domain: devops
+  tags:
+    - openenv
+    - ci-cd
+    - debugging
+    - deterministic-grading
+  difficulty_levels:
+    - easy
+    - medium
+    - hard
+  primary_metric: final_score
