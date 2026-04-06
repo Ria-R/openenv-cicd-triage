@@ -48,7 +48,6 @@ class CICDTriageEnv(EnvClient[CICDTriageAction, CICDTriageObservation, CICDTriag
 
     def _parse_result(self, payload: dict[str, Any]) -> StepResult[CICDTriageObservation]:
         observation_payload = payload.get("observation", payload)
-
         if isinstance(observation_payload, dict) and "observation" in observation_payload and "task_id" not in observation_payload:
             nested = observation_payload.get("observation")
             if isinstance(nested, dict):
@@ -74,14 +73,18 @@ class CICDTriageEnv(EnvClient[CICDTriageAction, CICDTriageObservation, CICDTriag
 
         observation = CICDTriageObservation(**filtered_observation_payload)
 
+        reward = payload.get("reward", observation_payload.get("reward"))
+        done = payload.get("done", observation_payload.get("done", False))
+        info = payload.get("info") or observation_payload.get("info") or {}
+
         result = StepResult(
             observation=observation,
-            reward=payload.get("reward"),
-            done=payload.get("done", False),
+            reward=reward,
+            done=done,
         )
 
         try:
-            result.info = payload.get("info", {})
+            result.info = info
         except Exception:
             pass
 

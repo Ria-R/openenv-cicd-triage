@@ -177,6 +177,7 @@ def get_model_action(client: OpenAI, observation: Any, step_idx: int) -> CICDTri
         return fallback_plan_step(task_id, step_idx)
 
 
+
 async def run_episode(client: OpenAI, env: CICDTriageEnv) -> tuple[str, bool, int, float, list[float]]:
     reset_result = await env.reset()
     obs = reset_result.observation
@@ -201,7 +202,6 @@ async def run_episode(client: OpenAI, env: CICDTriageEnv) -> tuple[str, bool, in
             steps_taken = step_idx + 1
 
             log_step(steps_taken, compact_action(action), reward, done, error)
-
             if done:
                 final_score = float(result.info.get("grader", {}).get("final_score", 0.0))
                 break
