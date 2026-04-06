@@ -1,3 +1,13 @@
+---
+title: OpenEnv CICD Triage
+emoji: 🛠️
+colorFrom: blue
+colorTo: green
+sdk: docker
+app_file: openenv_cicd_triage/server/app.py
+pinned: false
+---
+
 # OpenEnv CI/CD Triage
 
 OpenEnv CI/CD Triage is a real-world debugging environment for training and evaluating agents on failed software delivery pipelines. Each episode represents a failed pipeline run. The agent must investigate the run through bounded inspection actions, distinguish symptoms from root causes, propose the correct remediation, and resolve the incident efficiently.
