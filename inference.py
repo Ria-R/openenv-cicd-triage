@@ -202,15 +202,40 @@ async def run_episode(client: OpenAI, env: CICDTriageEnv) -> tuple[str, bool, in
             steps_taken = step_idx + 1
 
             log_step(steps_taken, compact_action(action), reward, done, error)
+
             if done:
-                final_score = float(result.info.get("grader", {}).get("final_score", 0.0))
+                info = getattr(result, "info", {}) or {}
+
+                # Prefer environment grader if present
+                grader_score = (
+                    info.get("grader", {}).get("final_score")
+                    or info.get("final_score")
+                    or 0.0
+                )
+
+                # Fallback: normalize trajectory reward into [0, 1]
+                reward_score = min(max(sum(rewards) / max(1, MAX_STEPS), 0.0), 1.0)
+
+                final_score = float(grader_score or reward_score)
                 break
-    finally:
-        success = final_score >= SUCCESS_SCORE_THRESHOLD
-        log_end(success=success, steps=steps_taken, score=final_score, rewards=rewards)
+        else:
+            # Episode never hit done, still produce a valid score
+            final_score = min(max(sum(rewards) / max(1, MAX_STEPS), 0.0), 1.0)
 
+    except Exception as exc:
+        # Never let a task crash inference.py
+        final_score = 0.0
+        log_step(
+            step=steps_taken + 1,
+            action="exception",
+            reward=0.0,
+            done=True,
+            error=str(exc),
+        )
+
+    success = final_score >= SUCCESS_SCORE_THRESHOLD
+    log_end(success=success, steps=steps_taken, score=final_score, rewards=rewards)
     return task_id, success, steps_taken, final_score, rewards
-
 
 async def main() -> None:
     if not LOCAL_IMAGE_NAME:
@@ -223,10 +248,21 @@ async def main() -> None:
 
     try:
         for _ in range(TASKS_TO_RUN):
-            await run_episode(client, env)
+            try:
+                await run_episode(client, env)
+            except Exception as exc:
+                # Keep the script alive and emit a compliant END line via run_episode logic
+                print(f"[START] task=unknown env={BENCHMARK} model={MODEL_NAME}", flush=True)
+                print(
+                    f"[STEP] step=1 action=exception reward=0.00 done=true error={str(exc)}",
+                    flush=True,
+                )
+                print("[END] success=false steps=0 score=0.000 rewards=", flush=True)
     finally:
-        await env.close()
-
+        try:
+            await env.close()
+        except Exception:
+            pass
 
 if __name__ == "__main__":
     asyncio.run(main())
