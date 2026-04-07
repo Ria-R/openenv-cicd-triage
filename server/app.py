@@ -7,7 +7,7 @@ app = internal_app  # expose app for OpenEnv
 
 def main():
     host = os.getenv("HOST", "0.0.0.0")
-    port = int(os.getenv("PORT", "7860"))
+    port = int(os.getenv("PORT", "8000"))
     workers = int(os.getenv("WORKERS", "1"))
 
     uvicorn.run(

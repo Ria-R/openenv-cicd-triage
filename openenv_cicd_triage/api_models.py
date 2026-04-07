@@ -1,8 +1,18 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, Dict, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+try:
+    from openenv.core.env_server.types import (
+        Action as OpenEnvAction,
+        Observation as OpenEnvObservation,
+    )
+except Exception:  # pragma: no cover
+    # Fallback if openenv-core is not installed
+    OpenEnvAction = BaseModel  # type: ignore[misc, assignment]
+    OpenEnvObservation = BaseModel  # type: ignore[misc, assignment]
 
 
 ActionType = Literal[
@@ -21,9 +31,8 @@ ActionType = Literal[
 ]
 
 
-class APICICDTriageAction(BaseModel):
+class APICICDTriageAction(OpenEnvAction):
     model_config = ConfigDict(extra="forbid")
-
     action_type: ActionType
     stage_name: str | None = None
     query: str | None = None
@@ -34,7 +43,7 @@ class APICICDTriageAction(BaseModel):
     fix_type: str | None = None
 
 
-class APICICDTriageObservation(BaseModel):
+class APICICDTriageObservation(OpenEnvObservation):
     model_config = ConfigDict(extra="forbid")
 
     task_id: str
@@ -53,8 +62,7 @@ class APICICDTriageObservation(BaseModel):
     last_action_error: str | None = None
     grader_hints: dict[str, Any] = Field(default_factory=dict)
 
-    reward: float | None = None
-    done: bool = False
+    # info is NOT part of the OpenEnv Observation base, so we add it here
     info: dict[str, Any] = Field(default_factory=dict)
 
 

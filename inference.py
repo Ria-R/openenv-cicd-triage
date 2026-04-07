@@ -26,7 +26,7 @@ You interact with an environment using one structured action at a time.
 Your job is to inspect evidence, submit a root cause, submit a fix, and resolve the episode.
 Return only compact JSON matching this schema:
 {
-  "action_type": str,
+  "action_type": "view_pipeline_summary" | "view_stage_log" | "view_log_window" | "search_logs" | "view_changed_files" | "view_dependency_file" | "view_test_report" | "view_env_snapshot" | "view_recent_run_diff" | "submit_root_cause" | "submit_fix" | "resolve_episode",
   "stage_name": str | null,
   "query": str | null,
   "line_start": int | null,
@@ -35,6 +35,7 @@ Return only compact JSON matching this schema:
   "summary": str | null,
   "fix_type": str | null
 }
+IMPORTANT: "action_type" MUST be exactly one of the string values listed above. Do not invent new action methods.
 Do not wrap the JSON in markdown.
 Prefer investigating before resolving.
 """

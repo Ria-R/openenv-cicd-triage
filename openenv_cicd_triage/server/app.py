@@ -14,23 +14,52 @@ except Exception as exc:  # pragma: no cover
 from ..api_models import (
     APICICDTriageAction,
     APICICDTriageObservation,
-    APICICDTriageStepResult,
 )
 from ..models import CICDTriageAction
 from .environment import CICDTriageEnvironment
 
 
 class ServerCICDTriageEnvironment(CICDTriageEnvironment):
-    def reset(self) -> APICICDTriageObservation:
+    """Wrapper that makes the environment compatible with the openenv-core framework.
+
+    The framework's HTTPEnvServer WS handler expects:
+    - reset() -> Observation subclass (APICICDTriageObservation)
+    - step(action) -> Observation subclass (APICICDTriageObservation)
+
+    The Observation must have `done`, `reward`, `metadata` fields
+    (inherited from openenv.core.env_server.types.Observation).
+    """
+
+    def reset(self, **kwargs) -> APICICDTriageObservation:
         obs = super().reset()
         return APICICDTriageObservation(
-            **obs.__dict__,
+            task_id=obs.task_id,
+            title=obs.title,
+            difficulty=obs.difficulty,
+            pipeline_id=obs.pipeline_id,
+            status=obs.status,
+            current_stage=obs.current_stage,
+            visible_summary=obs.visible_summary,
+            visible_logs=obs.visible_logs,
+            visible_artifacts=obs.visible_artifacts,
+            action_history=obs.action_history,
+            known_hypotheses=obs.known_hypotheses,
+            remaining_steps=obs.remaining_steps,
+            last_action_result=obs.last_action_result,
+            last_action_error=obs.last_action_error,
+            grader_hints=obs.grader_hints,
             reward=None,
             done=False,
             info={},
         )
 
-    def step(self, action: APICICDTriageAction | dict) -> APICICDTriageStepResult:
+    def step(self, action, **kwargs) -> APICICDTriageObservation:
+        """Execute a step and return an APICICDTriageObservation.
+
+        The framework's WS handler calls serialize_observation() on whatever
+        step() returns, so this MUST return an Observation subclass — not a dict.
+        """
+        # Convert the framework's APICICDTriageAction to internal CICDTriageAction
         if isinstance(action, APICICDTriageAction):
             internal_action = CICDTriageAction(
                 action_type=action.action_type,
@@ -56,25 +85,29 @@ class ServerCICDTriageEnvironment(CICDTriageEnvironment):
                 fix_type=getattr(action, "fix_type", None),
             )
 
-        result = super().step(internal_action)
+        # CICDTriageEnvironment.step() returns a dict
+        result = CICDTriageEnvironment.step(self, internal_action)
 
-        obs_payload = dict(result["observation"])
+        obs_payload = result["observation"]
 
-        # Remove duplicates if already present
-        obs_payload.pop("reward", None)
-        obs_payload.pop("done", None)
-        obs_payload.pop("info", None)
-
-        observation = APICICDTriageObservation(
-            **obs_payload,
+        # Build and return an Observation subclass (not a dict)
+        return APICICDTriageObservation(
+            task_id=obs_payload.get("task_id", ""),
+            title=obs_payload.get("title", ""),
+            difficulty=obs_payload.get("difficulty", ""),
+            pipeline_id=obs_payload.get("pipeline_id", ""),
+            status=obs_payload.get("status", ""),
+            current_stage=obs_payload.get("current_stage"),
+            visible_summary=obs_payload.get("visible_summary", {}),
+            visible_logs=obs_payload.get("visible_logs", {}),
+            visible_artifacts=obs_payload.get("visible_artifacts", {}),
+            action_history=obs_payload.get("action_history", []),
+            known_hypotheses=obs_payload.get("known_hypotheses", []),
+            remaining_steps=obs_payload.get("remaining_steps", 0),
+            last_action_result=obs_payload.get("last_action_result", ""),
+            last_action_error=obs_payload.get("last_action_error"),
+            grader_hints=obs_payload.get("grader_hints", {}),
             reward=result.get("reward"),
-            done=result.get("done", False),
-            info=result.get("info", {}),
-        )
-
-        return APICICDTriageStepResult(
-            observation=observation,
-            reward=result.get("reward", 0.0),
             done=result.get("done", False),
             info=result.get("info", {}),
         )
@@ -89,7 +122,7 @@ app = create_fastapi_app(
 
 def main() -> None:
     host = os.getenv("HOST", "0.0.0.0")
-    port = int(os.getenv("PORT", "7860"))
+    port = int(os.getenv("PORT", "8000"))
     workers = int(os.getenv("WORKERS", "1"))
     uvicorn.run("openenv_cicd_triage.server.app:app", host=host, port=port, workers=workers)
 
