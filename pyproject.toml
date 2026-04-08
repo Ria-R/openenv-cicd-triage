@@ -14,6 +14,7 @@ dependencies = [
   "uvicorn>=0.30.0",
   "pyyaml>=6.0.2",
   "openai>=1.30.0",
+  "python-dotenv>=1.0.0",
 ]
 
 [project.optional-dependencies]
@@ -31,3 +32,4 @@ include = ["openenv_cicd_triage*"]
 
 [tool.setuptools.package-data]
 openenv_cicd_triage = ["data/*.yaml"]
+  

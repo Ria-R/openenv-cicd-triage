@@ -8,6 +8,12 @@ import traceback
 from typing import Any, List, Optional
 
 try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+try:
     from openai import OpenAI
 except ImportError:
     OpenAI = None  # type: ignore[assignment,misc]
@@ -15,13 +21,13 @@ except ImportError:
 try:
     from openenv_cicd_triage import CICDTriageAction, CICDTriageEnv
 except ImportError:
-    # If the package isn't installed, define minimal stubs so the script
-    # can at least start and report meaningful errors.
     CICDTriageAction = None  # type: ignore[assignment,misc]
     CICDTriageEnv = None  # type: ignore[assignment,misc]
 
-LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
+API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
+API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY") or os.getenv("OPENAI_API_KEY") or ""
+LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
 
 BENCHMARK = "openenv-cicd-triage"
 MAX_STEPS = 12
@@ -66,7 +72,7 @@ def log_step(step: int, action: str, reward: float, done: bool, error: Optional[
 def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
     print(
-        f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}",
+        f"[END] success={str(success).lower()} steps={steps} score={score:.2f} rewards={rewards_str}",
         flush=True,
     )
 
@@ -172,16 +178,13 @@ def build_client() -> Any:
     if OpenAI is None:
         raise RuntimeError("openai package is not installed")
 
-    api_base_url = os.environ["API_BASE_URL"]
-    api_key = os.environ["API_KEY"]
-
-    print(f"[LLM] using API_BASE_URL={api_base_url}", flush=True)
-    print(f"[LLM] API_KEY present={bool(api_key)}", flush=True)
+    print(f"[LLM] using API_BASE_URL={API_BASE_URL}", flush=True)
+    print(f"[LLM] API_KEY present={bool(API_KEY)}", flush=True)
     print(f"[LLM] MODEL_NAME={MODEL_NAME}", flush=True)
 
     return OpenAI(
-        base_url=api_base_url,
-        api_key=api_key,
+        base_url=API_BASE_URL,
+        api_key=API_KEY,
     )
 
 
@@ -206,8 +209,8 @@ def get_model_action(client: Any, observation: Any, step_idx: int) -> Any:
         action_payload = json.loads(content)
         return CICDTriageAction(**action_payload)
     except Exception as exc:
-        print(f"[LLM_ERROR] {type(exc).__name__}: {exc}", flush=True)
-        raise
+        print(f"[LLM_ERROR] {type(exc).__name__}: {exc} — using fallback plan", flush=True)
+        return fallback_plan_step(task_id, step_idx)
 
 
 async def run_episode(client: Any, env: Any) -> tuple[str, bool, int, float, list[float]]:
@@ -318,7 +321,7 @@ async def main() -> None:
                     f"[STEP] step=1 action=exception reward=0.00 done=true error={str(exc)}",
                     flush=True,
                 )
-                print("[END] success=false steps=0 score=0.000 rewards=", flush=True)
+                print("[END] success=false steps=0 score=0.00 rewards=", flush=True)
     except Exception as exc:
         print(f"[FATAL] {type(exc).__name__}: {exc}", flush=True, file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
@@ -328,7 +331,7 @@ async def main() -> None:
                 f"[STEP] step=1 action=exception reward=0.00 done=true error={str(exc)}",
                 flush=True,
             )
-            print("[END] success=false steps=0 score=0.000 rewards=", flush=True)
+            print("[END] success=false steps=0 score=0.00 rewards=", flush=True)
     finally:
         if env is not None:
             try:
