@@ -256,13 +256,15 @@ async def main() -> None:
     # The OpenEnv evaluator sets OPENENV_BASE_URL pointing to your live HF Space.
     # For local dev, you set LOCAL_IMAGE_NAME to spin up a Docker container.
     openenv_base_url = os.getenv("OPENENV_BASE_URL")
-    hf_token = os.getenv("HF_TOKEN", "")
+    
+    # Prioritize API_KEY (used by OpenEnv evaluator) over HF_TOKEN
+    api_key = os.getenv("API_KEY") or os.getenv("HF_TOKEN") or "not-needed"
 
-    # Build LLM client — tolerant of missing token (evaluator may not provide one)
+    # Build LLM client
     if OpenAI is not None:
         client = OpenAI(
             base_url=API_BASE_URL,
-            api_key=hf_token if hf_token else "not-needed",
+            api_key=api_key,
         )
     else:
         client = None
