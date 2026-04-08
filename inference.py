@@ -239,13 +239,26 @@ async def run_episode(client: OpenAI, env: CICDTriageEnv) -> tuple[str, bool, in
     return task_id, success, steps_taken, final_score, rewards
 
 async def main() -> None:
-    if not LOCAL_IMAGE_NAME:
-        raise RuntimeError("LOCAL_IMAGE_NAME must be set.")
-    if not HF_TOKEN:
-        raise RuntimeError("HF_TOKEN must be set.")
+    # The OpenEnv evaluator sets OPENENV_BASE_URL pointing to your live HF Space.
+    # For local dev, you set LOCAL_IMAGE_NAME to spin up a Docker container.
+    openenv_base_url = os.getenv("OPENENV_BASE_URL")
+    hf_token = os.getenv("HF_TOKEN", "")
 
-    client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
-    env = await CICDTriageEnv.from_docker_image(LOCAL_IMAGE_NAME)
+    client = OpenAI(
+        base_url=API_BASE_URL,
+        api_key=hf_token if hf_token else "not-needed",
+    )
+
+    if openenv_base_url:
+        # Running inside the evaluator — connect to the provided URL
+        env = CICDTriageEnv(base_url=openenv_base_url)
+    elif LOCAL_IMAGE_NAME:
+        # Local development — spin up Docker container
+        env = await CICDTriageEnv.from_docker_image(LOCAL_IMAGE_NAME)
+    else:
+        raise RuntimeError(
+            "Set OPENENV_BASE_URL (evaluator) or LOCAL_IMAGE_NAME (local Docker)."
+        )
 
     try:
         for _ in range(TASKS_TO_RUN):
