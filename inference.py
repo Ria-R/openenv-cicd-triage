@@ -21,8 +21,6 @@ except ImportError:
     CICDTriageEnv = None  # type: ignore[assignment,misc]
 
 LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
-HF_TOKEN = os.getenv("HF_TOKEN")
-API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
 
 BENCHMARK = "openenv-cicd-triage"
@@ -165,15 +163,32 @@ DEFAULT_PLANS = {
 def fallback_plan_step(task_id: str, step_idx: int) -> Any:
     plan = DEFAULT_PLANS.get(task_id)
     if plan is None:
-        # Unknown task — just try to view pipeline summary
         plan = [{"action_type": "view_pipeline_summary"}, {"action_type": "resolve_episode"}]
     payload = plan[min(step_idx, len(plan) - 1)]
     return CICDTriageAction(**payload)
 
 
+def build_client() -> Any:
+    if OpenAI is None:
+        raise RuntimeError("openai package is not installed")
+
+    api_base_url = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
+    api_key = os.getenv("API_KEY") or os.getenv("HF_TOKEN", "not-needed")
+
+    print(f"[LLM] using API_BASE_URL={api_base_url}", flush=True)
+    print(f"[LLM] API_KEY present={bool(api_key and api_key != 'not-needed')}", flush=True)
+    print(f"[LLM] MODEL_NAME={MODEL_NAME}", flush=True)
+
+    return OpenAI(
+        base_url=api_base_url,
+        api_key=api_key,
+    )
+
+
 def get_model_action(client: Any, observation: Any, step_idx: int) -> Any:
     task_id = observation.task_id
     user_prompt = make_prompt(observation)
+
     try:
         completion = client.chat.completions.create(
             model=MODEL_NAME,
@@ -186,11 +201,13 @@ def get_model_action(client: Any, observation: Any, step_idx: int) -> Any:
             stream=False,
         )
         content = (completion.choices[0].message.content or "").strip()
+        print(f"[LLM_RAW] {content}", flush=True)
+
         action_payload = json.loads(content)
         return CICDTriageAction(**action_payload)
-    except Exception:
-        return fallback_plan_step(task_id, step_idx)
-
+    except Exception as exc:
+        print(f"[LLM_ERROR] {type(exc).__name__}: {exc}", flush=True)
+        raise
 
 
 async def run_episode(client: Any, env: Any) -> tuple[str, bool, int, float, list[float]]:
@@ -221,24 +238,20 @@ async def run_episode(client: Any, env: Any) -> tuple[str, bool, int, float, lis
             if done:
                 info = getattr(result, "info", {}) or {}
 
-                # Prefer environment grader if present
                 grader_score = (
                     info.get("grader", {}).get("final_score")
                     or info.get("final_score")
                     or 0.0
                 )
 
-                # Fallback: normalize trajectory reward into [0, 1]
                 reward_score = min(max(sum(rewards) / max(1, MAX_STEPS), 0.0), 1.0)
 
                 final_score = float(grader_score or reward_score)
                 break
         else:
-            # Episode never hit done, still produce a valid score
             final_score = min(max(sum(rewards) / max(1, MAX_STEPS), 0.0), 1.0)
 
     except Exception as exc:
-        # Never let a task crash inference.py
         final_score = 0.0
         log_step(
             step=steps_taken + 1,
@@ -252,36 +265,23 @@ async def run_episode(client: Any, env: Any) -> tuple[str, bool, int, float, lis
     log_end(success=success, steps=steps_taken, score=final_score, rewards=rewards)
     return task_id, success, steps_taken, final_score, rewards
 
+
 async def main() -> None:
-    # The OpenEnv evaluator sets OPENENV_BASE_URL pointing to your live HF Space.
-    # For local dev, you set LOCAL_IMAGE_NAME to spin up a Docker container.
     openenv_base_url = os.getenv("OPENENV_BASE_URL")
-    
-    # Prioritize API_KEY (used by OpenEnv evaluator) over HF_TOKEN
-    api_key = os.getenv("API_KEY") or os.getenv("HF_TOKEN") or "not-needed"
+    local_image_name = os.getenv("LOCAL_IMAGE_NAME")
 
-    # Build LLM client
-    if OpenAI is not None:
-        client = OpenAI(
-            base_url=API_BASE_URL,
-            api_key=api_key,
-        )
-    else:
-        client = None
-
-    # Connect to environment
     if CICDTriageEnv is None:
         print("[ERROR] openenv_cicd_triage package not installed", flush=True, file=sys.stderr)
         sys.exit(1)
 
+    client = build_client()
+
     env = None
     try:
         if openenv_base_url:
-            # Running inside the evaluator — connect to the provided URL
             env = CICDTriageEnv(base_url=openenv_base_url)
-        elif LOCAL_IMAGE_NAME:
-            # Local development — spin up Docker container
-            env = await CICDTriageEnv.from_docker_image(LOCAL_IMAGE_NAME)
+        elif local_image_name:
+            env = await CICDTriageEnv.from_docker_image(local_image_name)
         else:
             raise RuntimeError(
                 "Set OPENENV_BASE_URL (evaluator) or LOCAL_IMAGE_NAME (local Docker)."
@@ -291,7 +291,6 @@ async def main() -> None:
             try:
                 await run_episode(client, env)
             except Exception as exc:
-                # Keep the script alive and emit a compliant END line
                 print(f"[START] task=unknown env={BENCHMARK} model={MODEL_NAME}", flush=True)
                 print(
                     f"[STEP] step=1 action=exception reward=0.00 done=true error={str(exc)}",
@@ -299,7 +298,6 @@ async def main() -> None:
                 )
                 print("[END] success=false steps=0 score=0.000 rewards=", flush=True)
     except Exception as exc:
-        # Catch-all: even env creation failures should not crash the process
         print(f"[FATAL] {type(exc).__name__}: {exc}", flush=True, file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         for _ in range(TASKS_TO_RUN):
@@ -315,6 +313,7 @@ async def main() -> None:
                 await env.close()
             except Exception:
                 pass
+
 
 if __name__ == "__main__":
     asyncio.run(main())
