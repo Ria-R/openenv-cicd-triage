@@ -3,11 +3,22 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import sys
+import traceback
 from typing import Any, List, Optional
 
-from openai import OpenAI
+try:
+    from openai import OpenAI
+except ImportError:
+    OpenAI = None  # type: ignore[assignment,misc]
 
-from openenv_cicd_triage import CICDTriageAction, CICDTriageEnv
+try:
+    from openenv_cicd_triage import CICDTriageAction, CICDTriageEnv
+except ImportError:
+    # If the package isn't installed, define minimal stubs so the script
+    # can at least start and report meaningful errors.
+    CICDTriageAction = None  # type: ignore[assignment,misc]
+    CICDTriageEnv = None  # type: ignore[assignment,misc]
 
 LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
 HF_TOKEN = os.getenv("HF_TOKEN")
@@ -62,7 +73,7 @@ def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> No
     )
 
 
-def compact_action(action: CICDTriageAction) -> str:
+def compact_action(action: Any) -> str:
     payload = {
         "action_type": action.action_type,
         "stage_name": action.stage_name,
@@ -151,13 +162,16 @@ DEFAULT_PLANS = {
 }
 
 
-def fallback_plan_step(task_id: str, step_idx: int) -> CICDTriageAction:
-    plan = DEFAULT_PLANS[task_id]
+def fallback_plan_step(task_id: str, step_idx: int) -> Any:
+    plan = DEFAULT_PLANS.get(task_id)
+    if plan is None:
+        # Unknown task — just try to view pipeline summary
+        plan = [{"action_type": "view_pipeline_summary"}, {"action_type": "resolve_episode"}]
     payload = plan[min(step_idx, len(plan) - 1)]
     return CICDTriageAction(**payload)
 
 
-def get_model_action(client: OpenAI, observation: Any, step_idx: int) -> CICDTriageAction:
+def get_model_action(client: Any, observation: Any, step_idx: int) -> Any:
     task_id = observation.task_id
     user_prompt = make_prompt(observation)
     try:
@@ -179,7 +193,7 @@ def get_model_action(client: OpenAI, observation: Any, step_idx: int) -> CICDTri
 
 
 
-async def run_episode(client: OpenAI, env: CICDTriageEnv) -> tuple[str, bool, int, float, list[float]]:
+async def run_episode(client: Any, env: Any) -> tuple[str, bool, int, float, list[float]]:
     reset_result = await env.reset()
     obs = reset_result.observation
     task_id = obs.task_id
@@ -244,39 +258,61 @@ async def main() -> None:
     openenv_base_url = os.getenv("OPENENV_BASE_URL")
     hf_token = os.getenv("HF_TOKEN", "")
 
-    client = OpenAI(
-        base_url=API_BASE_URL,
-        api_key=hf_token if hf_token else "not-needed",
-    )
-
-    if openenv_base_url:
-        # Running inside the evaluator — connect to the provided URL
-        env = CICDTriageEnv(base_url=openenv_base_url)
-    elif LOCAL_IMAGE_NAME:
-        # Local development — spin up Docker container
-        env = await CICDTriageEnv.from_docker_image(LOCAL_IMAGE_NAME)
-    else:
-        raise RuntimeError(
-            "Set OPENENV_BASE_URL (evaluator) or LOCAL_IMAGE_NAME (local Docker)."
+    # Build LLM client — tolerant of missing token (evaluator may not provide one)
+    if OpenAI is not None:
+        client = OpenAI(
+            base_url=API_BASE_URL,
+            api_key=hf_token if hf_token else "not-needed",
         )
+    else:
+        client = None
 
+    # Connect to environment
+    if CICDTriageEnv is None:
+        print("[ERROR] openenv_cicd_triage package not installed", flush=True, file=sys.stderr)
+        sys.exit(1)
+
+    env = None
     try:
+        if openenv_base_url:
+            # Running inside the evaluator — connect to the provided URL
+            env = CICDTriageEnv(base_url=openenv_base_url)
+        elif LOCAL_IMAGE_NAME:
+            # Local development — spin up Docker container
+            env = await CICDTriageEnv.from_docker_image(LOCAL_IMAGE_NAME)
+        else:
+            raise RuntimeError(
+                "Set OPENENV_BASE_URL (evaluator) or LOCAL_IMAGE_NAME (local Docker)."
+            )
+
         for _ in range(TASKS_TO_RUN):
             try:
                 await run_episode(client, env)
             except Exception as exc:
-                # Keep the script alive and emit a compliant END line via run_episode logic
+                # Keep the script alive and emit a compliant END line
                 print(f"[START] task=unknown env={BENCHMARK} model={MODEL_NAME}", flush=True)
                 print(
                     f"[STEP] step=1 action=exception reward=0.00 done=true error={str(exc)}",
                     flush=True,
                 )
                 print("[END] success=false steps=0 score=0.000 rewards=", flush=True)
+    except Exception as exc:
+        # Catch-all: even env creation failures should not crash the process
+        print(f"[FATAL] {type(exc).__name__}: {exc}", flush=True, file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        for _ in range(TASKS_TO_RUN):
+            print(f"[START] task=unknown env={BENCHMARK} model={MODEL_NAME}", flush=True)
+            print(
+                f"[STEP] step=1 action=exception reward=0.00 done=true error={str(exc)}",
+                flush=True,
+            )
+            print("[END] success=false steps=0 score=0.000 rewards=", flush=True)
     finally:
-        try:
-            await env.close()
-        except Exception:
-            pass
+        if env is not None:
+            try:
+                await env.close()
+            except Exception:
+                pass
 
 if __name__ == "__main__":
     asyncio.run(main())
