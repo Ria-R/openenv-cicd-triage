@@ -4,7 +4,7 @@ description: Deterministic CI/CD failure debugging environment for agent evaluat
 entrypoint: openenv_cicd_triage.server.app:app
 runtime:
   framework: fastapi
-  port: 8000
+  port: 7860
 artifacts:
   dockerfile: Dockerfile
 metadata:
