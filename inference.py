@@ -172,11 +172,11 @@ def build_client() -> Any:
     if OpenAI is None:
         raise RuntimeError("openai package is not installed")
 
-    api_base_url = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-    api_key = os.getenv("API_KEY") or os.getenv("HF_TOKEN", "not-needed")
+    api_base_url = os.environ["API_BASE_URL"]
+    api_key = os.environ["API_KEY"]
 
     print(f"[LLM] using API_BASE_URL={api_base_url}", flush=True)
-    print(f"[LLM] API_KEY present={bool(api_key and api_key != 'not-needed')}", flush=True)
+    print(f"[LLM] API_KEY present={bool(api_key)}", flush=True)
     print(f"[LLM] MODEL_NAME={MODEL_NAME}", flush=True)
 
     return OpenAI(
@@ -283,9 +283,31 @@ async def main() -> None:
         elif local_image_name:
             env = await CICDTriageEnv.from_docker_image(local_image_name)
         else:
-            raise RuntimeError(
-                "Set OPENENV_BASE_URL (evaluator) or LOCAL_IMAGE_NAME (local Docker)."
-            )
+            from openenv_cicd_triage.server.environment import CICDTriageEnvironment
+            from openenv_cicd_triage.models import CICDTriageObservation
+            
+            class AsyncLocalEnv:
+                def __init__(self):
+                    self.env = CICDTriageEnvironment()
+                    
+                async def reset(self):
+                    obs = self.env.reset()
+                    class Res: pass
+                    r = Res()
+                    r.observation = obs
+                    return r
+                    
+                async def step(self, action):
+                    result = self.env.step(action)
+                    class Res: pass
+                    r = Res()
+                    r.observation = CICDTriageObservation(**result["observation"])
+                    r.reward = result.get("reward", 0.0)
+                    r.done = result.get("done", False)
+                    r.info = result.get("info", {})
+                    return r
+                    
+            env = AsyncLocalEnv()
 
         for _ in range(TASKS_TO_RUN):
             try:
